@@ -3,23 +3,49 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using CityInfo.API.Models;
+using CityInfo.API.Services;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.Extensions.Logging;
 
 namespace CityInfo.API.Controllers
 {
     [Route("api/cities")]
     public class PointsOfInterestController : Controller
     {
+        // in .net core 2.0 the ILoggerfactory is included and we dont need to import or configure it in startup.cs
+        // just ask for it in ctor and use
+        private readonly ILogger<PointsOfInterestController> _logger;
+        // custom service
+        private readonly IMailService _mailService;
+
+        public PointsOfInterestController(ILogger<PointsOfInterestController> logger, IMailService mailService)
+        {
+            _logger = logger;
+            _mailService = mailService;
+        }
+
         [HttpGet("{cityId}/pointsofinterest")]
         public IActionResult GetPointsOfInterest(int cityId)
         {
-            var city = CitiesDataStore.Current.Cities.FirstOrDefault(c => c.Id == cityId);
-            if (city == null)
+            try
             {
-                return NotFound();
+                var city = CitiesDataStore.Current.Cities.FirstOrDefault(c => c.Id == cityId);
+                if (city == null)
+                {
+                    _logger.LogError($"City with id {cityId} wasn't found when accessing points of interest.");
+                   // throw new Exception("Exception sample.");
+                    return NotFound();
+                }
+                // 200 OK
+                return Ok(city.PointsOfInterest);
             }
-            return Ok(city.PointsOfInterest);
+            catch (Exception ex)
+            {
+                _logger.LogError($"Exception while getting points of interest for City with id {cityId}.", ex);
+                return StatusCode(500, "A problem happened while handling your request");
+            }
         }
 
         [HttpGet("{cityId}/pointsofinterest/{id}", Name = "GetPointOfInterest")]
@@ -36,8 +62,10 @@ namespace CityInfo.API.Controllers
             {
                 return NotFound();
             }
+            // 200 OK
             return Ok(pointOfInterest);
         }
+
         [HttpPost("{cityId}/pointsOfInterest")]
         public IActionResult CreatePointOfInterest(int cityId,
             [FromBody] PointOfInterestForCreationDto pointOfInterest)
@@ -71,8 +99,10 @@ namespace CityInfo.API.Controllers
                 Description = pointOfInterest.Description
             };
             city.PointsOfInterest.Add(finalPointOfInterest);
+            // 201 Created
             return CreatedAtRoute("GetPointOfInterest", new { cityId = cityId, id = finalPointOfInterest.Id }, finalPointOfInterest);
         }
+
         [HttpPut("{cityId}/pointsofinterest/{id}")]
         public IActionResult UpdatePointOfInterest(int cityId, int id,
             [FromBody] PointOfInterestForCreationDto pointOfInterest)
@@ -109,7 +139,7 @@ namespace CityInfo.API.Controllers
             pointOfInterestFromStore.Description = pointOfInterest.Description;
 
             // This is the recomended return value for a PUT. The consumer has all the info so we don't return more than success
-            // This returns a 204 No content
+            // 204 No content
             return NoContent();
         }
 
@@ -152,7 +182,7 @@ namespace CityInfo.API.Controllers
             {
                 ModelState.AddModelError("Description", "The provided description should be different from the name.");
             }
-            // This updates the ModelState with errors from the data annotations
+            //**** This updates the ModelState with errors from the data annotations
             TryValidateModel(pointOfInterestToPatch);
 
             if (!ModelState.IsValid)
@@ -161,7 +191,29 @@ namespace CityInfo.API.Controllers
             }
             pointOfInterestFromStore.Name = pointOfInterestToPatch.Name;
             pointOfInterestFromStore.Description = pointOfInterestToPatch.Description;
+            //204 No content
+            return NoContent();
+        }
 
+        [HttpDelete("{cityId}/pointsofinterest/{id}")]
+        public IActionResult DeletePointOfInterest(int cityId, int id)
+        {
+            var city = CitiesDataStore.Current.Cities.FirstOrDefault(c => c.Id == cityId);
+            if (city == null)
+            {
+                return NotFound();
+            }
+
+            var poi = city.PointsOfInterest.FirstOrDefault(p => p.Id == id);
+            if (poi == null)
+            {
+                return NotFound();
+            }
+
+            city.PointsOfInterest.Remove(poi);
+
+            _mailService.Send("Point of interest deleted.", $"Point of interest {poi.Name} with id {poi.Id} was deleted");
+            // 204 NoContent
             return NoContent();
         }
     }
