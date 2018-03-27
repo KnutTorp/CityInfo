@@ -1,7 +1,9 @@
-﻿using CityInfo.API.Services;
+﻿using CityInfo.API.Entities;
+using CityInfo.API.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -60,10 +62,16 @@ namespace CityInfo.API
 #else
             services.AddTransient<IMailService, CloudMailService>();
 #endif
+            // gets the connection string from appSettings.json, but overvrites it with values from environment variables if one with the same key exists
+            // we can have a connection string in json for dev and one in env vars on the prod machine
+            // espesially if we use user and passwor in the connection string. Then we don't want to have it in source controll or config file
+            var connectionString = Startup.Configuration["connectionStrings:cityInfoDBConnectionString"];
+            services.AddDbContext<CityInfoContext>(o => o.UseSqlServer(connectionString));
+            services.AddScoped<ICityInfoRepository, CityInfoRepository>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostingEnvironment env) 
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env, CityInfoContext cityInfoContext) 
         {
             if (env.IsDevelopment())
             {
@@ -74,7 +82,20 @@ namespace CityInfo.API
                 app.UseExceptionHandler();
             }
 
+            cityInfoContext.EnsureSeedDataForContext();
+
             app.UseStatusCodePages();
+            AutoMapper.Mapper.Initialize(cfg =>
+            {
+                cfg.CreateMap<City, Models.CityWithoutPointsOfInterestDto>();
+                cfg.CreateMap<City, Models.CityDto>();
+                cfg.CreateMap<PointOfInterest, Models.PointOfInterestDto>();
+                cfg.CreateMap<PointOfInterest, Models.PointOfInterestForUpdateDto>();
+                cfg.CreateMap<Models.PointOfInterestForCreationDto, PointOfInterest>();
+                cfg.CreateMap<Models.PointOfInterestForUpdateDto, PointOfInterest>();
+
+            });
+
             app.UseMvc();
 
             //app.Run((context) =>
